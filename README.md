@@ -4,7 +4,7 @@
 
 # Celina Stats API
 
-Public Cloudflare Worker for Celina on-chain and off-chain stats. This is the **single place** dashboards and the SDK write to for tagged Celo transactions and Amplitude MCP-tool usage.
+Public Cloudflare Worker for Celina on-chain, off-chain, and npm package stats. This is the **single place** dashboards and the SDK write to for tagged Celo transactions and Amplitude MCP-tool usage.
 
 Production host: **https://api.stats.usecelina.xyz**
 
@@ -16,6 +16,7 @@ Production host: **https://api.stats.usecelina.xyz**
 | POST | `/onchain` | Ingest `{ "hash": "0x…" }` — verifies the Celo receipt succeeded and calldata carries the `celina` attribution tag, then upserts `celina_txns` |
 | GET | `/onchain` | `{ rows, lastSyncedAt }` — stored celina-tagged transactions |
 | GET | `/offchain` | Amplitude daily/tool/wallet aggregates |
+| GET | `/package` | Merged npm downloads for celina-mcp, celina-sdk, and the legacy celina wrapper (live from the npm registry) |
 
 `POST /onchain` is unauthenticated. Trust is on-chain: only successful, `celina`-tagged Celo mainnet transactions are stored. CORS allows any origin so the SDK can report from browsers and Node.
 

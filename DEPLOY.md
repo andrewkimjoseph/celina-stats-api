@@ -52,9 +52,11 @@ curl -sS https://api.stats.usecelina.xyz/health
 
 curl -sS https://api.stats.usecelina.xyz/onchain | head -c 200
 
+curl -sS https://api.stats.usecelina.xyz/package | head -c 200
+
 curl -sS https://api.stats.usecelina.xyz/onchain \
   -H 'Content-Type: application/json' \
   -d '{"hash":"0xYOUR_SUCCESSFUL_CELINA_TX"}'
 ```
 
-Expected: `{ "ok": true, "service": "celina-stats-api" }`, a JSON object with `rows`, and `{ "ok": true, "hash": "0x…" }` for a real tagged successful tx.
+Expected: `{ "ok": true, "service": "celina-stats-api" }`, a JSON object with `rows` from `/onchain`, merged npm `rows` from `/package`, and `{ "ok": true, "hash": "0x…" }` for a real tagged successful tx.

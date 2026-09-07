@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import { readOffchainStats } from "./amplitude.js";
 import type { StatsEnv } from "./env.js";
 import { ingestOnchainTxn, isTxHash, readOnchainTxns } from "./onchain.js";
+import { readPackageStats } from "./package.js";
 
 type AppBindings = { Bindings: StatsEnv };
 
@@ -80,6 +81,28 @@ export function createApp(): Hono<AppBindings> {
           uniqueDevices: 0,
           walletsQueried: 0,
           lastSyncedAt: null,
+        },
+        502,
+      );
+    }
+  });
+
+  app.get("/package", async (c) => {
+    try {
+      const stats = await readPackageStats();
+      if (stats.error && stats.rows.length === 0) {
+        return c.json(stats, 502);
+      }
+      return c.json(stats);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      return c.json(
+        {
+          error: message,
+          rows: [],
+          lastSyncedAt: null,
+          partial: false,
+          failedPackages: [],
         },
         502,
       );
