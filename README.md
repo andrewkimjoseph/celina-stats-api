@@ -4,7 +4,7 @@
 
 # Celina Stats API
 
-Public Cloudflare Worker for Celina on-chain, off-chain, and npm package stats. This is the **single place** dashboards and the SDK write to for tagged Celo transactions and read-tool usage events. The SDK reports usage to `POST /events` (stored in `amplitude_events`); a daily Amplitude export cron is kept for historical continuity.
+Public Cloudflare Worker for Celina on-chain ingest/read, SDK usage-event ingest, Amplitude export cron, and npm package stats. Dashboards read **off-chain aggregates** from [celina-api](https://api.usecelina.xyz) `GET /offchain/*` (computed from `amplitude_events`). This Worker remains the place the SDK writes usage events (`POST /events`) and where tagged Celo transactions land (`POST /onchain`).
 
 Production host: **https://api.stats.usecelina.xyz**
 
@@ -16,8 +16,9 @@ Production host: **https://api.stats.usecelina.xyz**
 | POST | `/onchain` | Ingest `{ "hash": "0x…" }` — verifies the Celo receipt succeeded and calldata carries the `celina` attribution tag, then upserts `celina_txns` |
 | GET | `/onchain` | `{ rows, lastSyncedAt }` — stored celina-tagged transactions |
 | POST | `/events` | Ingest `{ insertId, event, deviceId, userId?, occurredAt }` — celina-sdk usage-event reporting; upserts straight into `amplitude_events` (same row shape/dedupe as the Amplitude export sync) |
-| GET | `/offchain` | Daily/tool/wallet aggregates over `amplitude_events` (Amplitude export sync + real-time `POST /events` reports) |
 | GET | `/package` | Merged npm downloads for celina-mcp, celina-sdk, and the legacy celina wrapper (live from the npm registry) |
+
+Off-chain dashboard routes live on celina-api: `GET /offchain/daily`, `/offchain/wallets`, `/offchain/tools`, `/offchain/devices`, `/offchain/sync`.
 
 `POST /onchain` and `POST /events` are unauthenticated. Trust for `/onchain` is on-chain: only successful, `celina`-tagged Celo mainnet transactions are stored. `POST /events` is how `@andrewkimjoseph/celina-sdk` reports its own read-telemetry (no third-party Amplitude key bundled in the SDK anymore — see [`celina-sdk` telemetry docs](https://github.com/andrewkimjoseph/celina-sdk/blob/main/docs/guides/telemetry.md)). CORS allows any origin so the SDK can report from browsers and Node.
 

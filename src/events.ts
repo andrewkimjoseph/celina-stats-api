@@ -41,7 +41,7 @@ export type IngestEventResult = { ok: true } | { ok: false; status: 400 | 502; e
 /**
  * Insert an SDK-reported usage event straight into Supabase, using the same
  * `amplitude_events` row shape (and `insert_id` dedupe) that the Amplitude export
- * cron already populates — so existing rollups/views need no changes.
+ * cron already populates. Off-chain dashboard aggregates are computed by celina-api.
  */
 export async function ingestEvent(
   env: StatsEnv,

@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { readOffchainStats } from "./amplitude.js";
 import type { StatsEnv } from "./env.js";
 import { ingestEvent, isValidEventPayload } from "./events.js";
 import { ingestOnchainTxn, isTxHash, readOnchainTxns } from "./onchain.js";
@@ -82,28 +81,6 @@ export function createApp(): Hono<AppBindings> {
       return c.json({ error: result.error }, result.status);
     }
     return c.json({ ok: true });
-  });
-
-  app.get("/offchain", async (c) => {
-    try {
-      const stats = await readOffchainStats(c.env);
-      return c.json(stats);
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      return c.json(
-        {
-          error: message,
-          daily: [],
-          dailyWalletsQueried: [],
-          perTool: [],
-          total: 0,
-          uniqueDevices: 0,
-          walletsQueried: 0,
-          lastSyncedAt: null,
-        },
-        502,
-      );
-    }
   });
 
   app.get("/package", async (c) => {

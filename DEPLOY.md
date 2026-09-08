@@ -25,8 +25,8 @@ Set in the Cloudflare dashboard (**Workers & Pages → celina-stats-api → Sett
 | `SUPABASE_URL` | Yes | Stats Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Service role — never expose to browsers |
 | `CELO_RPC_URL` | Optional | Celo mainnet RPC (default: Forno) |
-| `AMPLITUDE_API_KEY` | Yes for `/offchain` cron | Amplitude project key |
-| `AMPLITUDE_SECRET_KEY` | Yes for `/offchain` cron | Amplitude secret |
+| `AMPLITUDE_API_KEY` | Yes for Amplitude export cron | Amplitude project key |
+| `AMPLITUDE_SECRET_KEY` | Yes for Amplitude export cron | Amplitude secret |
 | `AMPLITUDE_REGION` | Optional | `us` (default) or `eu` |
 
 `POST /events` needs no new secrets — it reuses `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` and writes straight into `amplitude_events`.

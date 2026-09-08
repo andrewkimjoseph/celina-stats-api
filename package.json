@@ -1,8 +1,8 @@
 {
   "name": "celina-stats-api",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
-  "description": "Celina stats API — on-chain tx ingest/read and off-chain Amplitude sync/read",
+  "description": "Celina stats API — on-chain tx ingest/read, SDK event ingest, Amplitude export cron, npm downloads",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",

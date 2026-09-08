@@ -25,21 +25,3 @@ export async function sbFetch(
     },
   });
 }
-
-export async function sbRpcScalar(
-  env: StatsEnv,
-  name: string,
-  body: Record<string, unknown>,
-): Promise<number> {
-  const res = await sbFetch(env, `/rest/v1/rpc/${name}`, {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    throw new Error(
-      `Supabase rpc ${name} ${res.status}: ${(await res.text()).slice(0, 200)}`,
-    );
-  }
-  const value = await res.json();
-  return Number(value ?? 0);
-}

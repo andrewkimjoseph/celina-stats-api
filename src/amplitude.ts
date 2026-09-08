@@ -1,28 +1,7 @@
 import { gunzipSync, strFromU8, unzipSync } from "fflate";
 import type { StatsEnv } from "./env.js";
-import { sbFetch, sbRpcScalar } from "./supabase.js";
+import { sbFetch } from "./supabase.js";
 
-export type AmplitudeEventDay = {
-  day: string;
-  count: number;
-};
-
-export type AmplitudeEventTotal = {
-  event: string;
-  count: number;
-};
-
-export type AmplitudeStatsResult = {
-  daily: AmplitudeEventDay[];
-  dailyWalletsQueried: AmplitudeEventDay[];
-  perTool: AmplitudeEventTotal[];
-  total: number;
-  uniqueDevices: number;
-  walletsQueried: number;
-  lastSyncedAt: string | null;
-};
-
-const LOOKBACK_DAYS = 90;
 const CACHE_GATE_MS = 24 * 60 * 60 * 1000;
 const EXPORT_CHUNK_HOURS = 6;
 const EXPORT_MAX_RETRIES = 2;
@@ -353,74 +332,4 @@ export async function runAmplitudeBackfill(
   await setSyncState(env, new Date().toISOString());
 
   return { pulled: events.length, upserted: rows.length };
-}
-
-export async function readOffchainStats(env: StatsEnv): Promise<AmplitudeStatsResult> {
-  const since = new Date();
-  since.setUTCDate(since.getUTCDate() - LOOKBACK_DAYS);
-  const sinceDay = since.toISOString().slice(0, 10);
-
-  const [dailyRes, toolRes, stateRes, walletsDailyRes] = await Promise.all([
-    sbFetch(
-      env,
-      `/rest/v1/amplitude_daily_totals?select=day,count&day=gte.${sinceDay}&order=day.asc`,
-    ),
-    sbFetch(env, `/rest/v1/amplitude_tool_totals?select=event,count&order=count.desc`),
-    sbFetch(env, `/rest/v1/amplitude_sync_state?select=last_synced_at&id=eq.1`),
-    sbFetch(
-      env,
-      `/rest/v1/amplitude_daily_queried_wallets?select=day,count&day=gte.${sinceDay}&order=day.asc`,
-    ),
-  ]);
-  if (!dailyRes.ok) {
-    throw new Error(
-      `Supabase read daily_totals ${dailyRes.status}: ${(await dailyRes.text()).slice(0, 200)}`,
-    );
-  }
-  if (!toolRes.ok) {
-    throw new Error(
-      `Supabase read tool_totals ${toolRes.status}: ${(await toolRes.text()).slice(0, 200)}`,
-    );
-  }
-  if (!walletsDailyRes.ok) {
-    throw new Error(
-      `Supabase read daily_queried_wallets ${walletsDailyRes.status}: ${(await walletsDailyRes.text()).slice(0, 200)}`,
-    );
-  }
-  const dailyRows = (await dailyRes.json()) as Array<{ day: string; count: number }>;
-  const toolRows = (await toolRes.json()) as Array<{ event: string; count: number }>;
-  const walletDailyRows = (await walletsDailyRes.json()) as Array<{
-    day: string;
-    count: number;
-  }>;
-  let lastSyncedAt: string | null = null;
-  if (stateRes.ok) {
-    const stateRows = (await stateRes.json()) as Array<{ last_synced_at: string }>;
-    lastSyncedAt = stateRows[0]?.last_synced_at ?? null;
-  }
-
-  const daily: AmplitudeEventDay[] = dailyRows.map((r) => ({ day: r.day, count: r.count }));
-  const perTool: AmplitudeEventTotal[] = toolRows.map((r) => ({
-    event: r.event,
-    count: r.count,
-  }));
-  const dailyWalletsQueried: AmplitudeEventDay[] = walletDailyRows.map((r) => ({
-    day: r.day,
-    count: r.count,
-  }));
-  const total = daily.reduce((s, d) => s + d.count, 0);
-  const [uniqueDevices, walletsQueried] = await Promise.all([
-    sbRpcScalar(env, "amplitude_unique_device_count", { since_day: sinceDay }),
-    sbRpcScalar(env, "amplitude_wallets_queried_total", { since_day: sinceDay }),
-  ]);
-
-  return {
-    daily,
-    dailyWalletsQueried,
-    perTool,
-    total,
-    uniqueDevices,
-    walletsQueried,
-    lastSyncedAt,
-  };
 }
