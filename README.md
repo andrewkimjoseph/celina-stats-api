@@ -4,7 +4,7 @@
 
 # Celina Stats API
 
-Public Cloudflare Worker for Celina on-chain, off-chain, and npm package stats. This is the **single place** dashboards and the SDK write to for tagged Celo transactions and Amplitude MCP-tool usage.
+Public Cloudflare Worker for Celina on-chain, off-chain, and npm package stats. This is the **single place** dashboards and the SDK write to for tagged Celo transactions and read-tool usage events. The SDK reports usage to `POST /events` (stored in `amplitude_events`); a daily Amplitude export cron is kept for historical continuity.
 
 Production host: **https://api.stats.usecelina.xyz**
 
