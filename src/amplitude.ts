@@ -335,8 +335,8 @@ export type AmplitudeBackfillResult = {
  * window (format `YYYYMMDDTHH`, matching {@link syncAmplitudeExport}'s internal hour
  * format), bypassing the 24h {@link CACHE_GATE_MS} gate.
  *
- * Temporary-script use only (see `scripts/backfill-amplitude-gap.ts`) — normal
- * operation should go through {@link syncAmplitudeExport} on the daily cron.
+ * Ad-hoc/manual use only (e.g. one-off gap backfills) — normal operation should
+ * go through {@link syncAmplitudeExport} on the daily cron.
  */
 export async function runAmplitudeBackfill(
   env: StatsEnv,
