@@ -8,18 +8,20 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "backfill:gap": "tsx scripts/backfill-amplitude-gap.ts"
   },
   "engines": {
     "node": ">=20.0.0"
   },
   "dependencies": {
-    "@andrewkimjoseph/celina-sdk": "0.25.27",
+    "@andrewkimjoseph/celina-sdk": "0.26.0",
     "fflate": "^0.8.3",
     "hono": "^4.9.6"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260815.1",
+    "tsx": "^4.19.2",
     "typescript": "^5.8.2",
     "vitest": "^3.2.4",
     "wrangler": "^4.28.0"

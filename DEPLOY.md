@@ -29,6 +29,8 @@ Set in the Cloudflare dashboard (**Workers & Pages → celina-stats-api → Sett
 | `AMPLITUDE_SECRET_KEY` | Yes for `/offchain` cron | Amplitude secret |
 | `AMPLITUDE_REGION` | Optional | `us` (default) or `eu` |
 
+`POST /events` needs no new secrets — it reuses `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` and writes straight into `amplitude_events`.
+
 Wrangler loads `.dev.vars` automatically for `npm run dev`.
 
 ## Custom domain
@@ -57,6 +59,10 @@ curl -sS https://api.stats.usecelina.xyz/package | head -c 200
 curl -sS https://api.stats.usecelina.xyz/onchain \
   -H 'Content-Type: application/json' \
   -d '{"hash":"0xYOUR_SUCCESSFUL_CELINA_TX"}'
+
+curl -sS https://api.stats.usecelina.xyz/events \
+  -H 'Content-Type: application/json' \
+  -d '{"insertId":"smoke-test-1","event":"get_wallet_address","deviceId":"celina_sdk","occurredAt":"2026-09-08T00:00:00.000Z"}'
 ```
 
-Expected: `{ "ok": true, "service": "celina-stats-api" }`, a JSON object with `rows` from `/onchain`, merged npm `rows` from `/package`, and `{ "ok": true, "hash": "0x…" }` for a real tagged successful tx.
+Expected: `{ "ok": true, "service": "celina-stats-api" }`, a JSON object with `rows` from `/onchain`, merged npm `rows` from `/package`, `{ "ok": true, "hash": "0x…" }` for a real tagged successful tx, and `{ "ok": true }` for `/events`.

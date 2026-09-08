@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { readOffchainStats } from "./amplitude.js";
 import type { StatsEnv } from "./env.js";
+import { ingestEvent, isValidEventPayload } from "./events.js";
 import { ingestOnchainTxn, isTxHash, readOnchainTxns } from "./onchain.js";
 import { readPackageStats } from "./package.js";
 
@@ -63,6 +64,24 @@ export function createApp(): Hono<AppBindings> {
       const message = e instanceof Error ? e.message : String(e);
       return c.json({ error: message, rows: [], lastSyncedAt: null }, 502);
     }
+  });
+
+  app.post("/events", async (c) => {
+    let body: unknown = {};
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+    if (!isValidEventPayload(body)) {
+      return c.json({ error: "Invalid event payload" }, 400);
+    }
+
+    const result = await ingestEvent(c.env, body);
+    if (!result.ok) {
+      return c.json({ error: result.error }, result.status);
+    }
+    return c.json({ ok: true });
   });
 
   app.get("/offchain", async (c) => {

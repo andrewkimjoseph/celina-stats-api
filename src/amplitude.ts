@@ -325,6 +325,36 @@ export async function syncAmplitudeExport(env: StatsEnv): Promise<void> {
   await setSyncState(env, now.toISOString());
 }
 
+export type AmplitudeBackfillResult = {
+  pulled: number;
+  upserted: number;
+};
+
+/**
+ * Force an Amplitude export -> Supabase upsert for an explicit `[startHour, endHour]`
+ * window (format `YYYYMMDDTHH`, matching {@link syncAmplitudeExport}'s internal hour
+ * format), bypassing the 24h {@link CACHE_GATE_MS} gate.
+ *
+ * Temporary-script use only (see `scripts/backfill-amplitude-gap.ts`) — normal
+ * operation should go through {@link syncAmplitudeExport} on the daily cron.
+ */
+export async function runAmplitudeBackfill(
+  env: StatsEnv,
+  startHour: string,
+  endHour: string,
+): Promise<AmplitudeBackfillResult> {
+  if (!env.AMPLITUDE_API_KEY || !env.AMPLITUDE_SECRET_KEY) {
+    throw new Error("Missing AMPLITUDE_API_KEY or AMPLITUDE_SECRET_KEY");
+  }
+
+  const events = await pullExportRange(env, startHour, endHour);
+  const rows = toEventRows(events);
+  await upsertEvents(env, rows);
+  await setSyncState(env, new Date().toISOString());
+
+  return { pulled: events.length, upserted: rows.length };
+}
+
 export async function readOffchainStats(env: StatsEnv): Promise<AmplitudeStatsResult> {
   const since = new Date();
   since.setUTCDate(since.getUTCDate() - LOOKBACK_DAYS);

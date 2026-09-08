@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app.js";
+import { isValidEventPayload } from "../src/events.js";
 import { isTxHash } from "../src/onchain.js";
 import {
   mergeDownloads,
@@ -49,6 +50,103 @@ describe("HTTP surface", () => {
     });
     expect(res.status).toBeLessThan(400);
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
+  });
+
+  it("POST /events rejects missing fields", async () => {
+    const res = await app.request("/events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event: "get_wallet_address" }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/invalid event payload/i);
+  });
+
+  it("POST /events rejects missing body", async () => {
+    const res = await app.request("/events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "not-json",
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /events rejects a non-ISO occurredAt", async () => {
+    const res = await app.request("/events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        insertId: "abc123",
+        event: "get_wallet_address",
+        deviceId: "celina_sdk",
+        occurredAt: "not-a-date",
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("OPTIONS /events allows CORS", async () => {
+    const res = await app.request("/events", {
+      method: "OPTIONS",
+      headers: {
+        Origin: "https://usecelina.xyz",
+        "Access-Control-Request-Method": "POST",
+      },
+    });
+    expect(res.status).toBeLessThan(400);
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+  });
+});
+
+describe("isValidEventPayload", () => {
+  const valid = {
+    insertId: "insert-1",
+    event: "get_wallet_address",
+    deviceId: "celina_sdk",
+    occurredAt: "2026-09-08T12:00:00.000Z",
+  };
+
+  it("accepts a well-formed payload", () => {
+    expect(isValidEventPayload(valid)).toBe(true);
+  });
+
+  it("accepts an optional userId", () => {
+    expect(
+      isValidEventPayload({
+        ...valid,
+        userId: "0x1234567890123456789012345678901234567890",
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects missing insertId", () => {
+    const { insertId: _insertId, ...rest } = valid;
+    expect(isValidEventPayload(rest)).toBe(false);
+  });
+
+  it("rejects missing event", () => {
+    const { event: _event, ...rest } = valid;
+    expect(isValidEventPayload(rest)).toBe(false);
+  });
+
+  it("rejects missing deviceId", () => {
+    const { deviceId: _deviceId, ...rest } = valid;
+    expect(isValidEventPayload(rest)).toBe(false);
+  });
+
+  it("rejects a non-ISO occurredAt", () => {
+    expect(isValidEventPayload({ ...valid, occurredAt: "not-a-date" })).toBe(false);
+  });
+
+  it("rejects a non-string userId", () => {
+    expect(isValidEventPayload({ ...valid, userId: 123 })).toBe(false);
+  });
+
+  it("rejects non-object bodies", () => {
+    expect(isValidEventPayload(null)).toBe(false);
+    expect(isValidEventPayload("string")).toBe(false);
+    expect(isValidEventPayload([valid])).toBe(false);
   });
 });
 
