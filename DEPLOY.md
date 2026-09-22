@@ -28,8 +28,9 @@ Set in the Cloudflare dashboard (**Workers & Pages → celina-stats-api → Sett
 | `AMPLITUDE_API_KEY` | Yes for Amplitude export cron | Amplitude project key |
 | `AMPLITUDE_SECRET_KEY` | Yes for Amplitude export cron | Amplitude secret |
 | `AMPLITUDE_REGION` | Optional | `us` (default) or `eu` |
+| `STATS_READ_KEY` | Yes | Bearer token for dashboard reads. Set the same value on celina-website |
 
-`POST /events` needs no new secrets — it reuses `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` and writes straight into `amplitude_events`.
+The midnight cron is the only writer of `amplitude_events`. SDK read telemetry goes to Amplitude. `POST /onchain` stays open and is rate-limited (60 requests / 60s per IP) by the `ONCHAIN_RATE_LIMITER` binding in `wrangler.jsonc`.
 
 Wrangler loads `.dev.vars` automatically for `npm run dev`.
 
@@ -52,21 +53,21 @@ Replace the host with your `workers.dev` URL or custom domain:
 ```bash
 curl -sS https://api.stats.usecelina.xyz/health
 
-curl -sS https://api.stats.usecelina.xyz/onchain | head -c 200
+curl -sS https://api.stats.usecelina.xyz/onchain \
+  -H "Authorization: Bearer $STATS_READ_KEY" | head -c 200
 
-curl -sS https://api.stats.usecelina.xyz/package | head -c 200
+curl -sS https://api.stats.usecelina.xyz/package \
+  -H "Authorization: Bearer $STATS_READ_KEY" | head -c 200
 
-curl -sS https://api.stats.usecelina.xyz/offchain/daily | head -c 200
+curl -sS https://api.stats.usecelina.xyz/offchain/daily \
+  -H "Authorization: Bearer $STATS_READ_KEY" | head -c 200
 
-curl -sS https://api.stats.usecelina.xyz/offchain/events | head -c 200
+curl -sS https://api.stats.usecelina.xyz/offchain/events \
+  -H "Authorization: Bearer $STATS_READ_KEY" | head -c 200
 
 curl -sS https://api.stats.usecelina.xyz/onchain \
   -H 'Content-Type: application/json' \
   -d '{"hash":"0xYOUR_SUCCESSFUL_CELINA_TX"}'
-
-curl -sS https://api.stats.usecelina.xyz/events \
-  -H 'Content-Type: application/json' \
-  -d '{"insertId":"smoke-test-1","event":"get_wallet_address","deviceId":"celina_sdk","occurredAt":"2026-09-08T00:00:00.000Z"}'
 ```
 
-Expected: `{ "ok": true, "service": "celina-stats-api" }`, a JSON object with `rows` from `/onchain`, merged npm `rows` from `/package`, `{ rows, total }` from `/offchain/daily`, `{ rows, lastSyncedAt }` from `/offchain/events`, `{ "ok": true, "hash": "0x…" }` for a real tagged successful tx, and `{ "ok": true }` for `POST /events`.
+Expected: `{ "ok": true, "service": "celina-stats-api" }`, a JSON object with `rows` from `/onchain`, merged npm `rows` from `/package`, `{ rows, total }` from `/offchain/daily`, `{ rows, lastSyncedAt }` from `/offchain/events`, and `{ "ok": true, "hash": "0x…" }` for a real tagged successful tx. Reads without the bearer token return 401. Deploy this Worker before celina-website, and set `STATS_READ_KEY` on both, or `/stats` returns 401 until the website sends the header.

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app.js";
-import { isValidEventPayload } from "../src/events.js";
 import { isTxHash } from "../src/onchain.js";
 import {
   mergeDownloads,
@@ -52,27 +51,7 @@ describe("HTTP surface", () => {
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
   });
 
-  it("POST /events rejects missing fields", async () => {
-    const res = await app.request("/events", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ event: "get_wallet_address" }),
-    });
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toMatch(/invalid event payload/i);
-  });
-
-  it("POST /events rejects missing body", async () => {
-    const res = await app.request("/events", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "not-json",
-    });
-    expect(res.status).toBe(400);
-  });
-
-  it("POST /events rejects a non-ISO occurredAt", async () => {
+  it("POST /events is gone", async () => {
     const res = await app.request("/events", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -80,73 +59,48 @@ describe("HTTP surface", () => {
         insertId: "abc123",
         event: "get_wallet_address",
         deviceId: "celina_sdk",
-        occurredAt: "not-a-date",
+        occurredAt: "2026-09-08T12:00:00.000Z",
       }),
     });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(404);
   });
 
-  it("OPTIONS /events allows CORS", async () => {
-    const res = await app.request("/events", {
-      method: "OPTIONS",
-      headers: {
-        Origin: "https://usecelina.xyz",
-        "Access-Control-Request-Method": "POST",
+  it("POST /onchain returns 429 when the rate limiter rejects", async () => {
+    const res = await app.request(
+      "/onchain",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "CF-Connecting-IP": "203.0.113.4",
+        },
+        body: JSON.stringify({ hash: `0x${"ab".repeat(32)}` }),
       },
-    });
-    expect(res.status).toBeLessThan(400);
-    expect(res.headers.get("access-control-allow-origin")).toBe("*");
-  });
-});
-
-describe("isValidEventPayload", () => {
-  const valid = {
-    insertId: "insert-1",
-    event: "get_wallet_address",
-    deviceId: "celina_sdk",
-    occurredAt: "2026-09-08T12:00:00.000Z",
-  };
-
-  it("accepts a well-formed payload", () => {
-    expect(isValidEventPayload(valid)).toBe(true);
+      {
+        ONCHAIN_RATE_LIMITER: {
+          limit: async ({ key }) => {
+            expect(key).toBe("203.0.113.4");
+            return { success: false };
+          },
+        },
+      },
+    );
+    expect(res.status).toBe(429);
   });
 
-  it("accepts an optional userId", () => {
-    expect(
-      isValidEventPayload({
-        ...valid,
-        userId: "0x1234567890123456789012345678901234567890",
-      }),
-    ).toBe(true);
-  });
-
-  it("rejects missing insertId", () => {
-    const { insertId: _insertId, ...rest } = valid;
-    expect(isValidEventPayload(rest)).toBe(false);
-  });
-
-  it("rejects missing event", () => {
-    const { event: _event, ...rest } = valid;
-    expect(isValidEventPayload(rest)).toBe(false);
-  });
-
-  it("rejects missing deviceId", () => {
-    const { deviceId: _deviceId, ...rest } = valid;
-    expect(isValidEventPayload(rest)).toBe(false);
-  });
-
-  it("rejects a non-ISO occurredAt", () => {
-    expect(isValidEventPayload({ ...valid, occurredAt: "not-a-date" })).toBe(false);
-  });
-
-  it("rejects a non-string userId", () => {
-    expect(isValidEventPayload({ ...valid, userId: 123 })).toBe(false);
-  });
-
-  it("rejects non-object bodies", () => {
-    expect(isValidEventPayload(null)).toBe(false);
-    expect(isValidEventPayload("string")).toBe(false);
-    expect(isValidEventPayload([valid])).toBe(false);
+  it("GET /onchain, /offchain, and /package require the read key", async () => {
+    for (const path of ["/onchain", "/offchain/daily", "/package"]) {
+      const missing = await app.request(path, undefined, { STATS_READ_KEY: "secret" });
+      expect(missing.status).toBe(401);
+      const wrong = await app.request(
+        path,
+        { headers: { Authorization: "Bearer other" } },
+        { STATS_READ_KEY: "secret" },
+      );
+      expect(wrong.status).toBe(401);
+    }
+    const unset = await app.request("/offchain/daily");
+    expect(unset.status).toBe(401);
   });
 });
 
@@ -245,10 +199,19 @@ describe("readPackageStats", () => {
   });
 });
 
+const READ_KEY = "test-read-key";
+
 const supabaseEnv = {
   SUPABASE_URL: "https://example.supabase.co",
   SUPABASE_SERVICE_ROLE_KEY: "service-role-test-key",
+  STATS_READ_KEY: READ_KEY,
 };
+
+function readRequest(path: string): Request {
+  return new Request(`http://localhost${path}`, {
+    headers: { Authorization: `Bearer ${READ_KEY}` },
+  });
+}
 
 describe("GET /offchain/*", () => {
   const app = createApp();
@@ -273,7 +236,7 @@ describe("GET /offchain/*", () => {
     const original = globalThis.fetch;
     globalThis.fetch = fetchMock as typeof fetch;
     try {
-      const res = await app.request("/offchain/daily", undefined, supabaseEnv);
+      const res = await app.request(readRequest("/offchain/daily"), undefined, supabaseEnv);
       expect(res.status).toBe(200);
       await expect(res.json()).resolves.toEqual({
         rows: [
@@ -313,7 +276,7 @@ describe("GET /offchain/*", () => {
     const original = globalThis.fetch;
     globalThis.fetch = fetchMock as typeof fetch;
     try {
-      const res = await app.request("/offchain/events", undefined, supabaseEnv);
+      const res = await app.request(readRequest("/offchain/events"), undefined, supabaseEnv);
       expect(res.status).toBe(200);
       await expect(res.json()).resolves.toEqual({
         rows: [
@@ -332,7 +295,9 @@ describe("GET /offchain/*", () => {
   });
 
   it("GET /offchain/daily is 502 when Supabase is not configured", async () => {
-    const res = await app.request("/offchain/daily");
+    const res = await app.request(readRequest("/offchain/daily"), undefined, {
+      STATS_READ_KEY: READ_KEY,
+    });
     expect(res.status).toBe(502);
     const body = (await res.json()) as { error: string };
     expect(body.error).toMatch(/SUPABASE_/);

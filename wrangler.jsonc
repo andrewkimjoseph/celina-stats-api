@@ -9,5 +9,15 @@
   },
   "triggers": {
     "crons": ["0 0 * * *"]
-  }
+  },
+  "ratelimits": [
+    {
+      "name": "ONCHAIN_RATE_LIMITER",
+      "namespace_id": "1001",
+      "simple": {
+        "limit": 60,
+        "period": 60
+      }
+    }
+  ]
 }

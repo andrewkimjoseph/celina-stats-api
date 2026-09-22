@@ -1,7 +1,7 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
+import { requireReadKey } from "./auth.js";
 import type { StatsEnv } from "./env.js";
-import { ingestEvent, isValidEventPayload } from "./events.js";
 import {
   offchainErrorMessage,
   readOffchainDaily,
@@ -21,6 +21,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+async function rejectIfOnchainRateLimited(
+  c: Context<AppBindings>,
+): Promise<Response | null> {
+  const limiter = c.env?.ONCHAIN_RATE_LIMITER;
+  if (!limiter) return null;
+  const ip = c.req.header("CF-Connecting-IP")?.trim() || "unknown";
+  const { success } = await limiter.limit({ key: ip.slice(0, 64) });
+  if (!success) {
+    return c.json({ error: "Too many requests" }, 429);
+  }
+  return null;
+}
+
 export function createApp(): Hono<AppBindings> {
   const app = new Hono<AppBindings>();
 
@@ -32,6 +45,13 @@ export function createApp(): Hono<AppBindings> {
       allowHeaders: ["Content-Type"],
     }),
   );
+
+  app.use("/offchain/*", requireReadKey);
+  app.use("/package", requireReadKey);
+  app.use("/onchain", async (c, next) => {
+    if (c.req.method === "GET") return requireReadKey(c, next);
+    return next();
+  });
 
   app.get("/", (c) =>
     c.json({
@@ -48,6 +68,9 @@ export function createApp(): Hono<AppBindings> {
   );
 
   app.post("/onchain", async (c) => {
+    const limited = await rejectIfOnchainRateLimited(c);
+    if (limited) return limited;
+
     let body: unknown = {};
     try {
       body = await c.req.json();
@@ -133,24 +156,6 @@ export function createApp(): Hono<AppBindings> {
         502,
       );
     }
-  });
-
-  app.post("/events", async (c) => {
-    let body: unknown = {};
-    try {
-      body = await c.req.json();
-    } catch {
-      return c.json({ error: "Invalid JSON body" }, 400);
-    }
-    if (!isValidEventPayload(body)) {
-      return c.json({ error: "Invalid event payload" }, 400);
-    }
-
-    const result = await ingestEvent(c.env, body);
-    if (!result.ok) {
-      return c.json({ error: result.error }, result.status);
-    }
-    return c.json({ ok: true });
   });
 
   app.get("/package", async (c) => {
