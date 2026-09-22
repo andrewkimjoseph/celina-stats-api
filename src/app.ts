@@ -2,6 +2,16 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { StatsEnv } from "./env.js";
 import { ingestEvent, isValidEventPayload } from "./events.js";
+import {
+  offchainErrorMessage,
+  readOffchainDaily,
+  readOffchainDevices,
+  readOffchainEvents,
+  readOffchainProjects,
+  readOffchainSync,
+  readOffchainTools,
+  readOffchainWallets,
+} from "./offchain.js";
 import { ingestOnchainTxn, isTxHash, readOnchainTxns } from "./onchain.js";
 import { readPackageStats } from "./package.js";
 
@@ -62,6 +72,66 @@ export function createApp(): Hono<AppBindings> {
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       return c.json({ error: message, rows: [], lastSyncedAt: null }, 502);
+    }
+  });
+
+  app.get("/offchain/daily", async (c) => {
+    try {
+      return c.json(await readOffchainDaily(c.env));
+    } catch (error) {
+      return c.json({ error: offchainErrorMessage(error) }, 502);
+    }
+  });
+
+  app.get("/offchain/wallets", async (c) => {
+    try {
+      return c.json(await readOffchainWallets(c.env));
+    } catch (error) {
+      return c.json({ error: offchainErrorMessage(error) }, 502);
+    }
+  });
+
+  app.get("/offchain/tools", async (c) => {
+    try {
+      return c.json(await readOffchainTools(c.env));
+    } catch (error) {
+      return c.json({ error: offchainErrorMessage(error) }, 502);
+    }
+  });
+
+  app.get("/offchain/projects", async (c) => {
+    try {
+      return c.json(await readOffchainProjects(c.env));
+    } catch (error) {
+      return c.json({ error: offchainErrorMessage(error) }, 502);
+    }
+  });
+
+  app.get("/offchain/devices", async (c) => {
+    try {
+      return c.json(await readOffchainDevices(c.env));
+    } catch (error) {
+      return c.json({ error: offchainErrorMessage(error) }, 502);
+    }
+  });
+
+  app.get("/offchain/sync", async (c) => {
+    try {
+      return c.json(await readOffchainSync(c.env));
+    } catch (error) {
+      return c.json({ error: offchainErrorMessage(error) }, 502);
+    }
+  });
+
+  app.get("/offchain/events", async (c) => {
+    try {
+      const { rows, lastSyncedAt } = await readOffchainEvents(c.env);
+      return c.json({ rows, lastSyncedAt });
+    } catch (error) {
+      return c.json(
+        { error: offchainErrorMessage(error), rows: [], lastSyncedAt: null },
+        502,
+      );
     }
   });
 

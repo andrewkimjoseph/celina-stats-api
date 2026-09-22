@@ -180,10 +180,10 @@ describe("mergeDownloads", () => {
   });
 });
 
-function jsonResponse(body: unknown, status = 200): Response {
+function jsonResponse(body: unknown, status = 200, headers?: HeadersInit): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...headers },
   });
 }
 
@@ -242,5 +242,99 @@ describe("readPackageStats", () => {
     expect(stats.partial).toBe(false);
     expect(stats.failedPackages).toHaveLength(PACKAGES.length);
     expect(stats.error).toBeTruthy();
+  });
+});
+
+const supabaseEnv = {
+  SUPABASE_URL: "https://example.supabase.co",
+  SUPABASE_SERVICE_ROLE_KEY: "service-role-test-key",
+};
+
+describe("GET /offchain/*", () => {
+  const app = createApp();
+
+  it("GET /offchain/daily aggregates rows", async () => {
+    const fetchMock = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      expect(init?.method).toBe("POST");
+      if (url.endsWith("/rest/v1/rpc/offchain_daily")) {
+        const body = JSON.parse(String(init?.body ?? "{}")) as { since_day: string };
+        expect(body.since_day).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        return jsonResponse([
+          { day: "2026-09-01", count: 2 },
+          { day: "2026-09-02", count: 3 },
+        ]);
+      }
+      if (url.endsWith("/rest/v1/rpc/offchain_total")) {
+        return jsonResponse(12);
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    };
+    const original = globalThis.fetch;
+    globalThis.fetch = fetchMock as typeof fetch;
+    try {
+      const res = await app.request("/offchain/daily", undefined, supabaseEnv);
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toEqual({
+        rows: [
+          { day: "2026-09-01", count: 2 },
+          { day: "2026-09-02", count: 3 },
+        ],
+        total: 12,
+      });
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("GET /offchain/events lists rows newest first", async () => {
+    const fetchMock = async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/rest/v1/amplitude_events")) {
+        expect(url).toContain("order=event_time.desc");
+        return jsonResponse(
+          [
+            {
+              insert_id: "a",
+              event_time: "2026-09-02T00:00:00.000Z",
+              event_type: "get_token_balance",
+              device_id: "the_good_pax_app",
+            },
+          ],
+          200,
+          { "content-range": "0-0/1" },
+        );
+      }
+      if (url.includes("/rest/v1/amplitude_sync_state")) {
+        return jsonResponse([{ last_synced_at: "2026-09-08T00:00:00.000Z" }]);
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    };
+    const original = globalThis.fetch;
+    globalThis.fetch = fetchMock as typeof fetch;
+    try {
+      const res = await app.request("/offchain/events", undefined, supabaseEnv);
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toEqual({
+        rows: [
+          {
+            insert_id: "a",
+            event_time: "2026-09-02T00:00:00.000Z",
+            event_type: "get_token_balance",
+            device_id: "the_good_pax_app",
+          },
+        ],
+        lastSyncedAt: "2026-09-08T00:00:00.000Z",
+      });
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("GET /offchain/daily is 502 when Supabase is not configured", async () => {
+    const res = await app.request("/offchain/daily");
+    expect(res.status).toBe(502);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/SUPABASE_/);
   });
 });

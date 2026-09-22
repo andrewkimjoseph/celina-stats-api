@@ -25,3 +25,20 @@ export async function sbFetch(
     },
   });
 }
+
+export async function sbRpc<T>(
+  env: StatsEnv,
+  name: string,
+  body: Record<string, unknown>,
+): Promise<T> {
+  const res = await sbFetch(env, `/rest/v1/rpc/${name}`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(
+      `Supabase rpc ${name} ${res.status}: ${(await res.text()).slice(0, 200)}`,
+    );
+  }
+  return (await res.json()) as T;
+}

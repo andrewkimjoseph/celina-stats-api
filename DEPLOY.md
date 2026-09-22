@@ -56,6 +56,10 @@ curl -sS https://api.stats.usecelina.xyz/onchain | head -c 200
 
 curl -sS https://api.stats.usecelina.xyz/package | head -c 200
 
+curl -sS https://api.stats.usecelina.xyz/offchain/daily | head -c 200
+
+curl -sS https://api.stats.usecelina.xyz/offchain/events | head -c 200
+
 curl -sS https://api.stats.usecelina.xyz/onchain \
   -H 'Content-Type: application/json' \
   -d '{"hash":"0xYOUR_SUCCESSFUL_CELINA_TX"}'
@@ -65,4 +69,4 @@ curl -sS https://api.stats.usecelina.xyz/events \
   -d '{"insertId":"smoke-test-1","event":"get_wallet_address","deviceId":"celina_sdk","occurredAt":"2026-09-08T00:00:00.000Z"}'
 ```
 
-Expected: `{ "ok": true, "service": "celina-stats-api" }`, a JSON object with `rows` from `/onchain`, merged npm `rows` from `/package`, `{ "ok": true, "hash": "0x…" }` for a real tagged successful tx, and `{ "ok": true }` for `/events`.
+Expected: `{ "ok": true, "service": "celina-stats-api" }`, a JSON object with `rows` from `/onchain`, merged npm `rows` from `/package`, `{ rows, total }` from `/offchain/daily`, `{ rows, lastSyncedAt }` from `/offchain/events`, `{ "ok": true, "hash": "0x…" }` for a real tagged successful tx, and `{ "ok": true }` for `POST /events`.
