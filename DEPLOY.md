@@ -44,7 +44,23 @@ Suggested production host: **https://api.stats.usecelina.xyz**
 
 ## Cron
 
-[`wrangler.jsonc`](wrangler.jsonc) defines `0 0 * * *` (midnight UTC). The scheduled handler runs the Amplitude export sync only. Confirm the trigger is enabled after connecting the git repo in the dashboard.
+[`wrangler.jsonc`](wrangler.jsonc) defines `0 0 * * *` (midnight UTC). The scheduled handler runs the Amplitude export sync only. Git push is enough when the Worker build runs `wrangler deploy`: that deploys the cron trigger with the Worker.
+
+After the next production deploy of `main`:
+
+1. Dashboard → Workers & Pages → **celina-stats-api** → **Settings → Triggers**.
+2. Confirm a Cron Trigger of `0 0 * * *`. If it is missing, add that expression (UTC). Do not add a second copy if it is already there.
+3. **Settings → Variables and Secrets** must include `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `AMPLITUDE_API_KEY`, and `AMPLITUDE_SECRET_KEY`. Without the Amplitude pair the handler logs `skipped` and writes nothing.
+4. After midnight UTC, **Observability → Logs** shows the sync result (`synced`, `partial`, or `empty_window`). `lastSyncedAt` from `GET /offchain/sync` means the cursor moved. It does not mean every event through midnight was stored. The sync stops at the latest hour Amplitude has closed (about two hours after that hour ends) and does not advance past an hour that is not ready yet.
+
+Run the same sync locally (reads `.dev.vars`, does not deploy):
+
+```bash
+npm run sync:amplitude
+npm run sync:amplitude -- 20260922T12 20260923T03
+```
+
+The second form forces an hour window (`YYYYMMDDTHH`). The end hour is capped at the latest closed hour.
 
 ## Smoke test
 

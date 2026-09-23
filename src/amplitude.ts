@@ -2,7 +2,11 @@ import { gunzipSync, strFromU8, unzipSync } from "fflate";
 import type { StatsEnv } from "./env.js";
 import { sbFetch } from "./supabase.js";
 
-const CACHE_GATE_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+/** Amplitude publishes an hour about 2 hours after that hour closes. */
+const EXPORT_LAG_MS = 2 * HOUR_MS;
+/** Re-read this much before the cursor so a late file in the last hour is not missed. */
+const EXPORT_OVERLAP_MS = 2 * HOUR_MS;
 const EXPORT_CHUNK_HOURS = 6;
 const EXPORT_MAX_RETRIES = 2;
 const SYNC_FLOOR_ISO = "2026-06-01T00:00:00Z";
@@ -21,6 +25,30 @@ function parseYmdh(hour: string): Date {
   return new Date(
     `${datePart.slice(0, 4)}-${datePart.slice(4, 6)}-${datePart.slice(6, 8)}T${hourPart}:00:00.000Z`,
   );
+}
+
+/**
+ * Last export hour whose close is at least {@link EXPORT_LAG_MS} in the past.
+ * At 06:00 UTC that is hour 03: hour 03 ends at 04:00 and is exportable at 06:00.
+ */
+export function latestClosedHour(now: Date): string {
+  const cutoff = now.getTime() - EXPORT_LAG_MS;
+  const hourEnd = Math.floor(cutoff / HOUR_MS) * HOUR_MS;
+  return ymdh(new Date(hourEnd - HOUR_MS));
+}
+
+/** ISO timestamp of the instant the given export hour ends (exclusive). */
+export function endOfHourIso(hour: string): string {
+  return new Date(parseYmdh(hour).getTime() + HOUR_MS).toISOString();
+}
+
+function* hoursInclusive(startHour: string, endHour: string): Generator<string> {
+  let cur = parseYmdh(startHour);
+  const end = parseYmdh(endHour);
+  while (cur <= end) {
+    yield ymdh(cur);
+    cur = new Date(cur.getTime() + HOUR_MS);
+  }
 }
 
 function* exportHourChunks(
@@ -119,11 +147,15 @@ type RawEventFull = RawEvent & {
   user_properties?: Record<string, unknown> | null;
 };
 
+type ExportBatch =
+  | { kind: "events"; events: RawEventFull[] }
+  | { kind: "absent" };
+
 async function pullExportOnce(
   env: StatsEnv,
   startHour: string,
   endHour: string,
-): Promise<RawEventFull[]> {
+): Promise<ExportBatch> {
   const url = new URL(`${amplitudeBaseUrl(env)}/api/2/export`);
   url.searchParams.set("start", startHour);
   url.searchParams.set("end", endHour);
@@ -132,7 +164,8 @@ async function pullExportOnce(
     headers: { Authorization: authHeader(env) },
   });
   if (res.status === 404) {
-    return [];
+    await res.body?.cancel();
+    return { kind: "absent" };
   }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -166,14 +199,14 @@ async function pullExportOnce(
       }
     }
   }
-  return events;
+  return { kind: "events", events };
 }
 
 async function pullExport(
   env: StatsEnv,
   startHour: string,
   endHour: string,
-): Promise<RawEventFull[]> {
+): Promise<ExportBatch> {
   let lastError: Error | undefined;
   for (let attempt = 0; attempt <= EXPORT_MAX_RETRIES; attempt++) {
     try {
@@ -194,20 +227,52 @@ async function pullExport(
   throw lastError ?? new Error("Amplitude export failed");
 }
 
+type PullOutcome = {
+  events: RawEventFull[];
+  /** Latest closed hour returned 404. Retry it next run; do not treat it as empty. */
+  retryHour: string | null;
+  completedThroughHour: string | null;
+};
+
 async function pullExportRange(
   env: StatsEnv,
   startHour: string,
   endHour: string,
-): Promise<RawEventFull[]> {
+): Promise<PullOutcome> {
   const chunks = [...exportHourChunks(startHour, endHour)];
   if (chunks.length === 0 && startHour <= endHour) {
     throw new Error(`Invalid Amplitude export window ${startHour}..${endHour} (no hour chunks)`);
   }
   const events: RawEventFull[] = [];
+  let completedThroughHour: string | null = null;
+
   for (const [chunkStart, chunkEnd] of chunks) {
-    events.push(...(await pullExport(env, chunkStart, chunkEnd)));
+    const chunk = await pullExport(env, chunkStart, chunkEnd);
+    if (chunk.kind === "events") {
+      events.push(...chunk.events);
+      completedThroughHour = chunkEnd;
+      continue;
+    }
+
+    // A multi-hour 404 hides every hour in the chunk. Walk them one by one so
+    // an empty hour does not drop its neighbors. Only the latest closed hour
+    // stops the run: an older 404 is a closed hour with no events, and
+    // refusing to pass it would stall the cursor on every quiet stretch.
+    for (const hour of hoursInclusive(chunkStart, chunkEnd)) {
+      const one = await pullExport(env, hour, hour);
+      if (one.kind === "events") {
+        events.push(...one.events);
+        completedThroughHour = hour;
+        continue;
+      }
+      if (hour === endHour) {
+        return { events, retryHour: hour, completedThroughHour };
+      }
+      completedThroughHour = hour;
+    }
   }
-  return events;
+
+  return { events, retryHour: null, completedThroughHour };
 }
 
 function eventTimeToIso(eventTime: string): string | null {
@@ -273,63 +338,150 @@ async function upsertEvents(
   }
 }
 
-export async function syncAmplitudeExport(env: StatsEnv): Promise<void> {
+export type AmplitudeSyncResult =
+  | { status: "skipped"; reason: "missing_credentials" }
+  | { status: "empty_window"; cursor: string; closedHour: string }
+  | {
+      status: "partial";
+      failedHour: string;
+      pulled: number;
+      upserted: number;
+      startHour: string;
+      endHour: string;
+    }
+  | {
+      status: "synced";
+      pulled: number;
+      upserted: number;
+      startHour: string;
+      endHour: string;
+    };
+
+export async function syncAmplitudeExport(
+  env: StatsEnv,
+  now = new Date(),
+): Promise<AmplitudeSyncResult> {
   if (!env.AMPLITUDE_API_KEY || !env.AMPLITUDE_SECRET_KEY) {
-    console.warn("[celina-stats-api] skip Amplitude sync: missing API key/secret");
-    return;
+    return { status: "skipped", reason: "missing_credentials" };
   }
 
   const { last_synced_at } = await getSyncState(env);
-  const lastSynced = new Date(last_synced_at);
-  const now = new Date();
-  if (now.getTime() - lastSynced.getTime() < CACHE_GATE_MS) {
-    return;
+  const cursor = new Date(last_synced_at);
+  const closedHour = latestClosedHour(now);
+  const closedThrough = new Date(endOfHourIso(closedHour));
+  if (cursor.getTime() >= closedThrough.getTime()) {
+    return {
+      status: "empty_window",
+      cursor: cursor.toISOString(),
+      closedHour,
+    };
   }
 
-  const yesterdayStart = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1),
-  );
-  const start = lastSynced < yesterdayStart ? lastSynced : yesterdayStart;
+  const floor = new Date(SYNC_FLOOR_ISO);
+  const overlapped = new Date(cursor.getTime() - EXPORT_OVERLAP_MS);
+  const start = overlapped < floor ? floor : overlapped;
   const startHour = ymdh(start);
-  const endRef = new Date(now.getTime() - 60 * 60 * 1000);
-  const endHour = ymdh(endRef);
-  if (endHour < startHour) {
-    await setSyncState(env, now.toISOString());
-    return;
+  if (closedHour < startHour) {
+    return {
+      status: "empty_window",
+      cursor: cursor.toISOString(),
+      closedHour,
+    };
   }
 
-  const events = await pullExportRange(env, startHour, endHour);
-  const rows = toEventRows(events);
+  const pull = await pullExportRange(env, startHour, closedHour);
+  const rows = toEventRows(pull.events);
   await upsertEvents(env, rows);
-  await setSyncState(env, now.toISOString());
+
+  if (pull.retryHour) {
+    await setSyncState(env, parseYmdh(pull.retryHour).toISOString());
+    return {
+      status: "partial",
+      failedHour: pull.retryHour,
+      pulled: pull.events.length,
+      upserted: rows.length,
+      startHour,
+      endHour: closedHour,
+    };
+  }
+
+  await setSyncState(env, endOfHourIso(closedHour));
+  return {
+    status: "synced",
+    pulled: pull.events.length,
+    upserted: rows.length,
+    startHour,
+    endHour: closedHour,
+  };
 }
 
 export type AmplitudeBackfillResult = {
   pulled: number;
   upserted: number;
+  status: "synced" | "partial";
+  failedHour?: string;
+  cursor: string;
+  startHour: string;
+  endHour: string;
 };
 
 /**
  * Force an Amplitude export -> Supabase upsert for an explicit `[startHour, endHour]`
- * window (format `YYYYMMDDTHH`, matching {@link syncAmplitudeExport}'s internal hour
- * format), bypassing the 24h {@link CACHE_GATE_MS} gate.
+ * window (format `YYYYMMDDTHH`). The end hour is capped at {@link latestClosedHour}
+ * so the cursor never moves into an hour Amplitude has not published.
  *
- * Ad-hoc/manual use only (e.g. one-off gap backfills) — normal operation should
- * go through {@link syncAmplitudeExport} on the daily cron.
+ * Ad-hoc/manual use only — the midnight cron goes through {@link syncAmplitudeExport}.
  */
 export async function runAmplitudeBackfill(
   env: StatsEnv,
   startHour: string,
   endHour: string,
+  now = new Date(),
 ): Promise<AmplitudeBackfillResult> {
   if (!env.AMPLITUDE_API_KEY || !env.AMPLITUDE_SECRET_KEY) {
     throw new Error("Missing AMPLITUDE_API_KEY or AMPLITUDE_SECRET_KEY");
   }
 
-  const events = await pullExportRange(env, startHour, endHour);
-  const rows = toEventRows(events);
-  await upsertEvents(env, rows);
-  await setSyncState(env, new Date().toISOString());
+  const closedHour = latestClosedHour(now);
+  const cappedEnd = endHour < closedHour ? endHour : closedHour;
+  const { last_synced_at } = await getSyncState(env);
+  if (cappedEnd < startHour) {
+    return {
+      pulled: 0,
+      upserted: 0,
+      status: "synced",
+      cursor: new Date(last_synced_at).toISOString(),
+      startHour,
+      endHour: cappedEnd,
+    };
+  }
 
-  return { pulled: events.length, upserted: rows.length };
+  const pull = await pullExportRange(env, startHour, cappedEnd);
+  const rows = toEventRows(pull.events);
+  await upsertEvents(env, rows);
+
+  const retryAt = pull.retryHour ? parseYmdh(pull.retryHour).toISOString() : null;
+  const completedThrough = endOfHourIso(pull.completedThroughHour ?? cappedEnd);
+  const closedEnd = endOfHourIso(closedHour);
+  let nextCursor = retryAt ?? (
+    new Date(completedThrough).getTime() > new Date(last_synced_at).getTime()
+      ? completedThrough
+      : new Date(last_synced_at).toISOString()
+  );
+  if (new Date(nextCursor).getTime() > new Date(closedEnd).getTime()) {
+    nextCursor = closedEnd;
+  }
+  if (new Date(nextCursor).getTime() !== new Date(last_synced_at).getTime()) {
+    await setSyncState(env, nextCursor);
+  }
+
+  return {
+    pulled: pull.events.length,
+    upserted: rows.length,
+    status: pull.retryHour ? "partial" : "synced",
+    failedHour: pull.retryHour ?? undefined,
+    cursor: nextCursor,
+    startHour,
+    endHour: cappedEnd,
+  };
 }

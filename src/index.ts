@@ -13,8 +13,8 @@ export default {
     ctx.waitUntil(
       (async () => {
         try {
-          await syncAmplitudeExport(env);
-          console.log("[celina-stats-api] amplitude sync complete");
+          const result = await syncAmplitudeExport(env);
+          console.log("[celina-stats-api] amplitude sync", JSON.stringify(result));
         } catch (err) {
           console.error("[celina-stats-api] amplitude sync failed", err);
         }
