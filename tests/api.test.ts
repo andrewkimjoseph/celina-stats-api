@@ -51,6 +51,110 @@ describe("HTTP surface", () => {
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
   });
 
+  it("POST /telemetry forwards one event to Amplitude", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+    try {
+      const res = await app.request(
+        "/telemetry",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            event_type: "get_wallet_address",
+            device_id: "celina_api",
+            insert_id: "abc",
+            time: 1,
+            user_id: "0x1234567890123456789012345678901234567890",
+          }),
+        },
+        { AMPLITUDE_API_KEY: "test-key" },
+      );
+      expect(res.status).toBe(204);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.url).toBe("https://api2.amplitude.com/2/httpapi");
+      const body = JSON.parse(String(calls[0]?.init?.body));
+      expect(body.api_key).toBe("test-key");
+      expect(body.events).toEqual([
+        {
+          event_type: "get_wallet_address",
+          device_id: "celina_api",
+          insert_id: "abc",
+          time: 1,
+          user_id: "0x1234567890123456789012345678901234567890",
+        },
+      ]);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("POST /telemetry rejects an unexpected field", async () => {
+    const res = await app.request(
+      "/telemetry",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event_type: "get_wallet_address",
+          device_id: "celina_api",
+          insert_id: "abc",
+          time: 1,
+          api_key: "stolen",
+        }),
+      },
+      { AMPLITUDE_API_KEY: "test-key" },
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /telemetry returns 503 when the write key is unset", async () => {
+    const res = await app.request("/telemetry", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event_type: "get_wallet_address",
+        device_id: "celina_api",
+        insert_id: "abc",
+        time: 1,
+      }),
+    });
+    expect(res.status).toBe(503);
+  });
+
+  it("POST /telemetry returns 429 when the rate limiter rejects", async () => {
+    const res = await app.request(
+      "/telemetry",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "CF-Connecting-IP": "203.0.113.9",
+        },
+        body: JSON.stringify({
+          event_type: "get_wallet_address",
+          device_id: "celina_api",
+          insert_id: "abc",
+          time: 1,
+        }),
+      },
+      {
+        AMPLITUDE_API_KEY: "test-key",
+        TELEMETRY_RATE_LIMITER: {
+          limit: async ({ key }) => {
+            expect(key).toBe("203.0.113.9");
+            return { success: false };
+          },
+        },
+      },
+    );
+    expect(res.status).toBe(429);
+  });
+
   it("POST /events is gone", async () => {
     const res = await app.request("/events", {
       method: "POST",

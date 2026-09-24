@@ -14,6 +14,7 @@ Production host: **https://api.stats.usecelina.xyz**
 |--------|------|---------|
 | GET | `/health` | `{ ok, service: "celina-stats-api" }` |
 | POST | `/onchain` | Ingest `{ "hash": "0x…" }` — verifies the Celo receipt succeeded and calldata carries the `celina` attribution tag, then upserts `celina_txns`. 60 requests / 60s per IP |
+| POST | `/telemetry` | Forward one SDK read event to Amplitude. 600 requests / 60s per IP. The write key stays on this Worker |
 | GET | `/onchain` | `{ rows, lastSyncedAt }` — stored celina-tagged transactions. Requires `Authorization: Bearer $STATS_READ_KEY` |
 | GET | `/offchain/daily` | `{ rows: [{ day, count }], total }` — `rows` last 90 days; `total` all-time. Requires the read key |
 | GET | `/offchain/wallets` | `{ daily: [{ day, count }], total }` — distinct valid `0x` `user_id` (90 days) |
@@ -28,7 +29,7 @@ Production host: **https://api.stats.usecelina.xyz**
 
 `POST /onchain` is unauthenticated. Trust is on-chain: only successful, `celina`-tagged Celo mainnet transactions are stored. A Workers rate limit caps it at 60 requests per minute per client IP.
 
-SDK read telemetry goes to Amplitude, not this Worker. The daily export cron is the only writer of `amplitude_events`. See the [`celina-sdk` telemetry docs](https://github.com/andrewkimjoseph/celina-sdk/blob/main/docs/guides/telemetry.md).
+SDK read telemetry posts to `POST /telemetry`. This Worker adds `AMPLITUDE_API_KEY` and forwards one event to Amplitude. The daily export cron is the only writer of `amplitude_events`. See the [`celina-sdk` telemetry docs](https://github.com/andrewkimjoseph/celina-sdk/blob/main/docs/guides/telemetry.md).
 
 ## Local dev
 

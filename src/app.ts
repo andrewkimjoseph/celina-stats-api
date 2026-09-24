@@ -14,6 +14,7 @@ import {
 } from "./offchain.js";
 import { ingestOnchainTxn, isTxHash, readOnchainTxns } from "./onchain.js";
 import { readPackageStats } from "./package.js";
+import { forwardTelemetryEvent, parseTelemetryBody } from "./telemetry.js";
 
 type AppBindings = { Bindings: StatsEnv };
 
@@ -21,10 +22,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-async function rejectIfOnchainRateLimited(
+async function rejectIfRateLimited(
   c: Context<AppBindings>,
+  limiter: StatsEnv["ONCHAIN_RATE_LIMITER"],
 ): Promise<Response | null> {
-  const limiter = c.env?.ONCHAIN_RATE_LIMITER;
   if (!limiter) return null;
   const ip = c.req.header("CF-Connecting-IP")?.trim() || "unknown";
   const { success } = await limiter.limit({ key: ip.slice(0, 64) });
@@ -68,7 +69,7 @@ export function createApp(): Hono<AppBindings> {
   );
 
   app.post("/onchain", async (c) => {
-    const limited = await rejectIfOnchainRateLimited(c);
+    const limited = await rejectIfRateLimited(c, c.env?.ONCHAIN_RATE_LIMITER);
     if (limited) return limited;
 
     let body: unknown = {};
@@ -86,6 +87,38 @@ export function createApp(): Hono<AppBindings> {
       return c.json({ error: result.error }, result.status);
     }
     return c.json({ ok: true, hash: result.hash });
+  });
+
+  app.post("/telemetry", async (c) => {
+    const limited = await rejectIfRateLimited(c, c.env?.TELEMETRY_RATE_LIMITER);
+    if (limited) return limited;
+
+    const apiKey = c.env?.AMPLITUDE_API_KEY?.trim();
+    if (!apiKey) {
+      return c.json({ error: "Telemetry is not configured" }, 503);
+    }
+
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+
+    const parsed = parseTelemetryBody(body);
+    if (!parsed.ok) {
+      return c.json({ error: parsed.error }, 400);
+    }
+
+    try {
+      const accepted = await forwardTelemetryEvent(apiKey, parsed.event);
+      if (!accepted) {
+        return c.json({ error: "Upstream rejected the event" }, 502);
+      }
+    } catch {
+      return c.json({ error: "Upstream rejected the event" }, 502);
+    }
+    return c.body(null, 204);
   });
 
   app.get("/onchain", async (c) => {

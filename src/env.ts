@@ -13,6 +13,8 @@ export type StatsEnv = {
   STATS_READ_KEY?: string;
   /** Workers Rate Limiting binding for `POST /onchain`. Absent in unit tests. */
   ONCHAIN_RATE_LIMITER?: RateLimiter;
+  /** Workers Rate Limiting binding for `POST /telemetry`. Absent in unit tests. */
+  TELEMETRY_RATE_LIMITER?: RateLimiter;
 };
 
 export const DEFAULT_PRODUCTION_BASE_URL = "https://api.stats.usecelina.xyz";

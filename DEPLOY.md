@@ -25,12 +25,12 @@ Set in the Cloudflare dashboard (**Workers & Pages → celina-stats-api → Sett
 | `SUPABASE_URL` | Yes | Stats Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Service role — never expose to browsers |
 | `CELO_RPC_URL` | Optional | Celo mainnet RPC (default: Forno) |
-| `AMPLITUDE_API_KEY` | Yes for Amplitude export cron | Amplitude project key |
-| `AMPLITUDE_SECRET_KEY` | Yes for Amplitude export cron | Amplitude secret |
+| `AMPLITUDE_API_KEY` | Yes | Amplitude project write key. `POST /telemetry` forwards with it, and the export cron reads with it |
+| `AMPLITUDE_SECRET_KEY` | Yes for Amplitude export cron | Amplitude secret. Not used by `POST /telemetry` |
 | `AMPLITUDE_REGION` | Optional | `us` (default) or `eu` |
 | `STATS_READ_KEY` | Yes | Bearer token for dashboard reads. Set the same value on celina-website |
 
-The midnight cron is the only writer of `amplitude_events`. SDK read telemetry goes to Amplitude. `POST /onchain` stays open and is rate-limited (60 requests / 60s per IP) by the `ONCHAIN_RATE_LIMITER` binding in `wrangler.jsonc`.
+The midnight cron is the only writer of `amplitude_events`. `POST /telemetry` forwards one SDK read event to Amplitude and is rate-limited (600 requests / 60s per IP) by `TELEMETRY_RATE_LIMITER`. `POST /onchain` stays open and is rate-limited (60 requests / 60s per IP) by `ONCHAIN_RATE_LIMITER`. Both bindings are in `wrangler.jsonc`.
 
 Wrangler loads `.dev.vars` automatically for `npm run dev`.
 
