@@ -16,7 +16,9 @@ export default {
           const result = await syncAmplitudeExport(env);
           console.log("[celina-stats-api] amplitude sync", JSON.stringify(result));
         } catch (err) {
-          console.error("[celina-stats-api] amplitude sync failed", err);
+          const detail = err instanceof Error ? err.message : String(err);
+          const stack = err instanceof Error ? err.stack : "";
+          console.error(`[celina-stats-api] amplitude sync failed: ${detail}`, stack);
         }
       })(),
     );
