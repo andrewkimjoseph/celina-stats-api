@@ -15,6 +15,7 @@ import {
 import { ingestOnchainTxn, isTxHash, readOnchainTxns } from "./onchain.js";
 import { readPackageStats } from "./package.js";
 import { forwardTelemetryEvent, parseTelemetryBody } from "./telemetry.js";
+import { readUptimeHistory } from "./uptime.js";
 
 type AppBindings = { Bindings: StatsEnv };
 
@@ -67,6 +68,16 @@ export function createApp(): Hono<AppBindings> {
       service: "celina-stats-api",
     }),
   );
+
+  app.get("/uptime", async (c) => {
+    try {
+      const days = await readUptimeHistory(c.env ?? {});
+      return c.json({ days });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return c.json({ error: message, days: [] }, 502);
+    }
+  });
 
   app.post("/onchain", async (c) => {
     const limited = await rejectIfRateLimited(c, c.env?.ONCHAIN_RATE_LIMITER);

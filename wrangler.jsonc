@@ -10,6 +10,12 @@
   "triggers": {
     "crons": ["0 0 * * *"]
   },
+  "kv_namespaces": [
+    {
+      "binding": "UPTIME_STORE",
+      "id": "6735975ccf3442efbdb75a18ed502feb"
+    }
+  ],
   "ratelimits": [
     {
       "name": "ONCHAIN_RATE_LIMITER",

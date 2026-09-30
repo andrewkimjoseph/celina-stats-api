@@ -24,6 +24,7 @@ Production host: **https://api.stats.usecelina.xyz**
 | GET | `/offchain/sync` | `{ lastSyncedAt }` — Amplitude export cursor |
 | GET | `/offchain/events` | `{ rows, lastSyncedAt }` — all calls, newest first (`insert_id`, `event_time`, `event_type`, `device_id`) |
 | GET | `/package` | Merged npm downloads for celina-mcp, celina-sdk, and the legacy celina wrapper (live from the npm registry). Requires the read key |
+| GET | `/uptime` | `{ days }` — last 30 daily health snapshots for [status.usecelina.xyz](https://status.usecelina.xyz). Public. Each day lists MCP Remote, API, bot, stats API, website, Celeste, and the status page |
 
 `GET /onchain`, `GET /offchain/*`, and `GET /package` require `Authorization: Bearer $STATS_READ_KEY`. If that secret is unset, those routes return 401.
 
@@ -48,7 +49,7 @@ Create the Worker from the **Cloudflare dashboard** (Git integration). Do not us
 
 See **[DEPLOY.md](DEPLOY.md)** for secrets, custom domain `api.stats.usecelina.xyz`, and smoke tests.
 
-A daily cron (`0 0 * * *` UTC) syncs the Amplitude export into Supabase. That is how off-chain usage reaches the dashboard. On-chain rows arrive via `POST /onchain`. There is no chain-scan cron.
+A daily cron (`0 0 * * *` UTC) syncs the Amplitude export into Supabase and writes that day's health snapshot to `UPTIME_STORE`. The export is how off-chain usage reaches the dashboard. [celina-status](https://github.com/andrewkimjoseph/celina-status) at [status.usecelina.xyz](https://status.usecelina.xyz) reads `GET /uptime` for the 30-day history. On-chain rows arrive via `POST /onchain`. There is no chain-scan cron.
 
 ## License
 

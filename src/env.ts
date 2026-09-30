@@ -15,6 +15,18 @@ export type StatsEnv = {
   ONCHAIN_RATE_LIMITER?: RateLimiter;
   /** Workers Rate Limiting binding for `POST /telemetry`. Absent in unit tests. */
   TELEMETRY_RATE_LIMITER?: RateLimiter;
+  /** Daily health snapshots for status.usecelina.xyz. Absent until the namespace is bound. */
+  UPTIME_STORE?: UptimeStore;
+};
+
+export type UptimeStore = {
+  get(key: string): Promise<string | null>;
+  put(key: string, value: string): Promise<void>;
+  list(options?: { prefix?: string; cursor?: string }): Promise<{
+    keys: Array<{ name: string }>;
+    list_complete: boolean;
+    cursor?: string;
+  }>;
 };
 
 export const DEFAULT_PRODUCTION_BASE_URL = "https://api.stats.usecelina.xyz";
