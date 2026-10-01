@@ -12,7 +12,6 @@ export const MONITORED_SERVICES = [
   { id: "stats", name: "Stats API", url: "https://api.stats.usecelina.xyz/health" },
   { id: "website", name: "Website", url: "https://usecelina.xyz/" },
   { id: "celeste", name: "Celeste AI", url: "https://celeste.usecelina.xyz/" },
-  { id: "status", name: "Status", url: "https://status.usecelina.xyz/" },
 ] as const;
 
 export type ServiceId = (typeof MONITORED_SERVICES)[number]["id"];
