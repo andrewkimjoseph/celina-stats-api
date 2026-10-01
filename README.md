@@ -49,7 +49,7 @@ Requires Node.js ≥ 20. Depends on published `@andrewkimjoseph/celina-sdk` (exa
 
 See **[DEPLOY.md](DEPLOY.md)** for secrets, custom domain `api.stats.usecelina.xyz`, and smoke tests.
 
-A daily cron (`0 0 * * *` UTC) syncs the Amplitude export into Supabase and writes that day's health snapshot to `UPTIME_STORE`. The export is how off-chain usage reaches the dashboard. [celina-status](https://github.com/andrewkimjoseph/celina-status) at [status.usecelina.xyz](https://status.usecelina.xyz) reads `GET /uptime` for the 30-day history. On-chain rows arrive via `POST /onchain`. There is no chain-scan cron.
+A daily cron (`0 0 * * *` UTC) syncs the Amplitude export into Supabase. That export is how off-chain usage reaches the dashboard. An hourly cron (`0 * * * *` UTC) writes that UTC day's health snapshot to `UPTIME_STORE`, keeping the worse status if the day was already recorded. [celina-status](https://github.com/andrewkimjoseph/celina-status) at [status.usecelina.xyz](https://status.usecelina.xyz) reads `GET /uptime` for the 30-day history. On-chain rows arrive via `POST /onchain`. There is no chain-scan cron.
 
 ## License
 

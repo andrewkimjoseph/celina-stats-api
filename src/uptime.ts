@@ -3,7 +3,15 @@ import type { StatsEnv } from "./env.js";
 export const DEGRADED_LATENCY_MS = 1000;
 export const PING_TIMEOUT_MS = 8_000;
 export const UPTIME_HISTORY_DAYS = 30;
+/** First day the hosted stack was recorded. Missing only until the first hourly run copies it. */
+export const UPTIME_RECORDING_START = "2026-09-30";
 const KV_PREFIX = "uptime:";
+
+const STATUS_RANK: Record<ServiceStatus, number> = {
+  operational: 0,
+  degraded: 1,
+  down: 2,
+};
 
 export const MONITORED_SERVICES = [
   { id: "mcp", name: "MCP Remote", url: "https://mcp.usecelina.xyz/health" },
@@ -94,6 +102,27 @@ export async function pingAllServices(doFetch: typeof fetch = fetch): Promise<Se
   return Promise.all(MONITORED_SERVICES.map((service) => pingOne(service, doFetch)));
 }
 
+function worsePing(previous: ServicePing, next: ServicePing): ServicePing {
+  return STATUS_RANK[next.status] > STATUS_RANK[previous.status] ? next : previous;
+}
+
+function mergeDayResults(previous: ServicePing[], next: ServicePing[]): ServicePing[] {
+  const prior = new Map(previous.map((row) => [row.id, row]));
+  const incoming = new Map(next.map((row) => [row.id, row]));
+  const ids = MONITORED_SERVICES.map((service) => service.id);
+  const extra = [...new Set([...prior.keys(), ...incoming.keys()])].filter(
+    (id) => !ids.includes(id as ServiceId),
+  );
+  return [...ids, ...extra].flatMap((id) => {
+    const oldRow = prior.get(id as ServiceId);
+    const newRow = incoming.get(id as ServiceId);
+    if (oldRow && newRow) return [worsePing(oldRow, newRow)];
+    if (newRow) return [newRow];
+    if (oldRow) return [oldRow];
+    return [];
+  });
+}
+
 export async function writeUptimeRecord(
   env: StatsEnv,
   date: string,
@@ -103,11 +132,37 @@ export async function writeUptimeRecord(
     console.warn("[celina-stats-api] UPTIME_STORE is not bound; skipping uptime write");
     return;
   }
-  const record: UptimeDay = { date, results };
-  await env.UPTIME_STORE.put(`${KV_PREFIX}${date}`, JSON.stringify(record));
+  const key = `${KV_PREFIX}${date}`;
+  const existing = parseDay(await env.UPTIME_STORE.get(key));
+  const merged = existing ? mergeDayResults(existing.results, results) : results;
+  const record: UptimeDay = { date, results: merged };
+  await env.UPTIME_STORE.put(key, JSON.stringify(record));
+}
+
+/**
+ * Copy the earliest stored day onto {@link UPTIME_RECORDING_START} once.
+ * Does nothing when that key exists, or when no later day has been stored.
+ */
+export async function backfillRecordingStart(env: StatsEnv): Promise<void> {
+  const store = env.UPTIME_STORE;
+  if (!store) return;
+  const startKey = `${KV_PREFIX}${UPTIME_RECORDING_START}`;
+  if (await store.get(startKey)) return;
+
+  const days = await listUptimeDays(env);
+  const earliest = days
+    .filter((day) => day.date > UPTIME_RECORDING_START)
+    .sort((a, b) => a.date.localeCompare(b.date))[0];
+  if (!earliest) return;
+
+  await store.put(
+    startKey,
+    JSON.stringify({ date: UPTIME_RECORDING_START, results: earliest.results }),
+  );
 }
 
 export async function recordDailyUptime(env: StatsEnv, now = new Date()): Promise<ServicePing[]> {
+  await backfillRecordingStart(env);
   const results = await pingAllServices();
   await writeUptimeRecord(env, utcDay(now), results);
   return results;
@@ -124,7 +179,7 @@ function parseDay(raw: string | null): UptimeDay | null {
   }
 }
 
-export async function readUptimeHistory(env: StatsEnv): Promise<UptimeDay[]> {
+async function listUptimeDays(env: StatsEnv): Promise<UptimeDay[]> {
   const store = env.UPTIME_STORE;
   if (!store) return [];
 
@@ -137,9 +192,13 @@ export async function readUptimeHistory(env: StatsEnv): Promise<UptimeDay[]> {
     cursor = listed.cursor;
   }
 
-  const recent = names.sort().slice(-UPTIME_HISTORY_DAYS);
   const days = await Promise.all(
-    recent.map(async (name) => parseDay(await store.get(name))),
+    names.sort().map(async (name) => parseDay(await store.get(name))),
   );
   return days.filter((day): day is UptimeDay => day !== null);
+}
+
+export async function readUptimeHistory(env: StatsEnv): Promise<UptimeDay[]> {
+  const days = await listUptimeDays(env);
+  return days.slice(-UPTIME_HISTORY_DAYS);
 }

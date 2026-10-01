@@ -3,6 +3,7 @@ import { createApp } from "../src/app.js";
 import type { UptimeStore } from "../src/env.js";
 import {
   MONITORED_SERVICES,
+  backfillRecordingStart,
   pingAllServices,
   readUptimeHistory,
   statusFromResponse,
@@ -78,6 +79,57 @@ describe("uptime", () => {
       ok: true,
       latencyMs: 0,
     });
+  });
+
+  it("keeps the worse status when the same day is written again", async () => {
+    const store = memoryStore();
+    const env = { UPTIME_STORE: store };
+    await writeUptimeRecord(env, "2026-10-01", [
+      ping("mcp", "down"),
+      ping("api", "degraded"),
+    ]);
+    await writeUptimeRecord(env, "2026-10-01", [
+      ping("mcp", "operational"),
+      ping("api", "down"),
+      ping("bot", "operational"),
+    ]);
+    const days = await readUptimeHistory(env);
+    expect(days).toHaveLength(1);
+    expect(days[0]?.results.find((row) => row.id === "mcp")?.status).toBe("down");
+    expect(days[0]?.results.find((row) => row.id === "api")?.status).toBe("down");
+    expect(days[0]?.results.find((row) => row.id === "bot")?.status).toBe("operational");
+  });
+
+  it("copies the earliest later day onto 2026-09-30 once", async () => {
+    const store = memoryStore({
+      "uptime:2026-10-02": JSON.stringify({
+        date: "2026-10-02",
+        results: [ping("stats", "down")],
+      }),
+      "uptime:2026-10-01": JSON.stringify({
+        date: "2026-10-01",
+        results: [ping("stats", "operational"), ping("celeste", "degraded")],
+      }),
+    });
+    const env = { UPTIME_STORE: store };
+    await backfillRecordingStart(env);
+    const first = JSON.parse((await store.get("uptime:2026-09-30")) ?? "") as {
+      date: string;
+      results: ServicePing[];
+    };
+    expect(first.date).toBe("2026-09-30");
+    expect(first.results.find((row) => row.id === "stats")?.status).toBe("operational");
+    expect(first.results.find((row) => row.id === "celeste")?.status).toBe("degraded");
+
+    await store.put(
+      "uptime:2026-10-01",
+      JSON.stringify({ date: "2026-10-01", results: [ping("stats", "down")] }),
+    );
+    await backfillRecordingStart(env);
+    const second = JSON.parse((await store.get("uptime:2026-09-30")) ?? "") as {
+      results: ServicePing[];
+    };
+    expect(second.results.find((row) => row.id === "stats")?.status).toBe("operational");
   });
 
   it("keeps the latest 30 daily records", async () => {
