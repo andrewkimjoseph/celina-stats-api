@@ -15,6 +15,7 @@ import {
 import { ingestOnchainTxn, isTxHash, readOnchainTxns } from "./onchain.js";
 import { readPackageStats } from "./package.js";
 import { forwardTelemetryEvent, parseTelemetryBody } from "./telemetry.js";
+import { checkUrl } from "./health-check.js";
 import { readUptimeHistory } from "./uptime.js";
 
 type AppBindings = { Bindings: StatsEnv };
@@ -62,12 +63,21 @@ export function createApp(): Hono<AppBindings> {
     }),
   );
 
-  app.get("/health", (c) =>
-    c.json({
-      ok: true,
-      service: "celina-stats-api",
-    }),
-  );
+  app.get("/health", async (c) => {
+    const env = c.env ?? {};
+    const supabaseUrl = env.SUPABASE_URL?.trim().replace(/\/+$/, "");
+    const supabase = supabaseUrl
+      ? await checkUrl(`${supabaseUrl}/rest/v1/`, {
+          headers: { apikey: env.SUPABASE_SERVICE_ROLE_KEY ?? "" },
+        })
+      : false;
+    const uptimeStore = Boolean(env.UPTIME_STORE);
+    const ok = supabase && uptimeStore;
+    return c.json(
+      { ok, service: "celina-stats-api", checks: { supabase, uptimeStore } },
+      ok ? 200 : 503,
+    );
+  });
 
   app.get("/uptime", async (c) => {
     try {

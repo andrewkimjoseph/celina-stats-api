@@ -1,6 +1,12 @@
 # Deploy — Celina Stats API (Cloudflare Workers)
 
-Create and deploy this Worker from the **Cloudflare dashboard** (Workers & Pages → Create → Connect git). Do **not** run `wrangler deploy` / `wrangler login` from a machine whose Wrangler CLI is tied to a different Cloudflare account.
+Deploy with the Wrangler CLI. [`wrangler.jsonc`](wrangler.jsonc) pins `account_id` to the CELINA Cloudflare account.
+
+```bash
+npx wrangler deploy
+```
+
+If Wrangler reports an authentication or account error, delete `node_modules/.cache/wrangler/wrangler-account.json` in this repo and retry. That file can keep a previous login's account after you switch accounts.
 
 ## Prerequisites
 
@@ -18,7 +24,7 @@ npm run dev                 # optional — http://localhost:8787
 
 ## Environment variables
 
-Set in the Cloudflare dashboard (**Workers & Pages → celina-stats-api → Settings → Variables and Secrets**).
+Set with Wrangler (`npx wrangler secret put NAME`), reading the value from `.dev.vars`. Do not commit that file.
 
 | Variable | Required | Notes |
 |----------|----------|-------|
@@ -38,19 +44,16 @@ Wrangler loads `.dev.vars` automatically for `npm run dev`.
 
 Suggested production host: **https://api.stats.usecelina.xyz**
 
-1. Open the Worker in the Cloudflare dashboard
-2. **Settings → Domains & Routes → Add Custom Domain**
-3. Enter `api.stats.usecelina.xyz`
+Attach `api.stats.usecelina.xyz` as a custom domain on the Worker (dashboard: Settings → Domains & Routes), or add a `routes` entry with `"custom_domain": true` in [`wrangler.jsonc`](wrangler.jsonc) and deploy.
 
 ## Cron
 
-[`wrangler.jsonc`](wrangler.jsonc) defines `0 0 * * *` (midnight UTC). The scheduled handler runs the Amplitude export sync only. Git push is enough when the Worker build runs `wrangler deploy`: that deploys the cron trigger with the Worker.
+[`wrangler.jsonc`](wrangler.jsonc) defines `0 0 * * *` (midnight UTC). `npx wrangler deploy` publishes that cron trigger with the Worker. The scheduled handler syncs the Amplitude export and writes that day's health snapshot. The stats service is recorded in-process — the cron does not `fetch` its own public URL.
 
-After the next production deploy of `main`:
+After deploy:
 
-1. Dashboard → Workers & Pages → **celina-stats-api** → **Settings → Triggers**.
-2. Confirm a Cron Trigger of `0 0 * * *`. If it is missing, add that expression (UTC). Do not add a second copy if it is already there.
-3. **Settings → Variables and Secrets** must include `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `AMPLITUDE_API_KEY`, and `AMPLITUDE_SECRET_KEY`. Without the Amplitude pair the handler logs `skipped` and writes nothing.
+1. `npx wrangler deployments list` (or the dashboard Triggers page) should show the cron `0 0 * * *`. Do not add a second copy if it is already there.
+2. Secrets must include `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `AMPLITUDE_API_KEY`, and `AMPLITUDE_SECRET_KEY`. Without the Amplitude pair the handler logs `skipped` and writes nothing.
 4. After midnight UTC, **Observability → Logs** shows the sync result (`synced`, `partial`, or `empty_window`). `lastSyncedAt` from `GET /offchain/sync` means the cursor moved. It does not mean every event through midnight was stored. The sync stops at the latest hour Amplitude has closed (about two hours after that hour ends) and does not advance past an hour that is not ready yet.
 
 Run the same sync locally (reads `.dev.vars`, does not deploy):
@@ -86,4 +89,4 @@ curl -sS https://api.stats.usecelina.xyz/onchain \
   -d '{"hash":"0xYOUR_SUCCESSFUL_CELINA_TX"}'
 ```
 
-Expected: `{ "ok": true, "service": "celina-stats-api" }`, a JSON object with `rows` from `/onchain`, merged npm `rows` from `/package`, `{ rows, total }` from `/offchain/daily`, `{ rows, lastSyncedAt }` from `/offchain/events`, and `{ "ok": true, "hash": "0x…" }` for a real tagged successful tx. Reads without the bearer token return 401. Deploy this Worker before celina-website, and set `STATS_READ_KEY` on both, or `/stats` returns 401 until the website sends the header.
+Expected: `{ "ok": true, "service": "celina-stats-api", "checks": { "supabase": true, "uptimeStore": true } }` (HTTP 503 when Supabase or `UPTIME_STORE` is unavailable), a JSON object with `rows` from `/onchain`, merged npm `rows` from `/package`, `{ rows, total }` from `/offchain/daily`, `{ rows, lastSyncedAt }` from `/offchain/events`, and `{ "ok": true, "hash": "0x…" }` for a real tagged successful tx. Reads without the bearer token return 401. Deploy this Worker before celina-website, and set `STATS_READ_KEY` on both, or `/stats` returns 401 until the website sends the header.

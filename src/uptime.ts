@@ -42,10 +42,25 @@ export function utcDay(now = new Date()): string {
   return now.toISOString().slice(0, 10);
 }
 
+function selfPing(service: (typeof MONITORED_SERVICES)[number]): ServicePing {
+  return {
+    id: service.id,
+    name: service.name,
+    url: service.url,
+    status: "operational",
+    latencyMs: 0,
+    ok: true,
+  };
+}
+
 async function pingOne(
   service: (typeof MONITORED_SERVICES)[number],
   doFetch: typeof fetch,
 ): Promise<ServicePing> {
+  // The cron runs inside this Worker. Fetching its own public URL is rejected
+  // by Cloudflare (error 1042), so record Stats API in-process instead.
+  if (service.id === "stats") return selfPing(service);
+
   const started = Date.now();
   try {
     const res = await doFetch(service.url, {

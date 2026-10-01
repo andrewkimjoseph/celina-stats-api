@@ -10,13 +10,49 @@ import {
 describe("HTTP surface", () => {
   const app = createApp();
 
-  it("GET /health", async () => {
-    const res = await app.request("/health");
-    expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toEqual({
-      ok: true,
-      service: "celina-stats-api",
-    });
+  it("GET /health reports supabase and the uptime store", async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => new Response("ok", { status: 200 })) as typeof fetch;
+    try {
+      const res = await app.request(
+        "/health",
+        {},
+        {
+          SUPABASE_URL: "https://example.supabase.co",
+          SUPABASE_SERVICE_ROLE_KEY: "service-role",
+          UPTIME_STORE: {},
+        },
+      );
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toEqual({
+        ok: true,
+        service: "celina-stats-api",
+        checks: { supabase: true, uptimeStore: true },
+      });
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("GET /health is 503 when supabase is unreachable", async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => new Response("no", { status: 503 })) as typeof fetch;
+    try {
+      const res = await app.request(
+        "/health",
+        {},
+        {
+          SUPABASE_URL: "https://example.supabase.co",
+          UPTIME_STORE: {},
+        },
+      );
+      expect(res.status).toBe(503);
+      const body = (await res.json()) as { ok: boolean; checks: { supabase: boolean } };
+      expect(body.ok).toBe(false);
+      expect(body.checks.supabase).toBe(false);
+    } finally {
+      globalThis.fetch = original;
+    }
   });
 
   it("POST /onchain rejects invalid hash", async () => {

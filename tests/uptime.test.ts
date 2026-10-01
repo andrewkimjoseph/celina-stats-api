@@ -61,6 +61,23 @@ describe("uptime", () => {
     expect(results.find((row) => row.id === "mcp")?.status).toBe("operational");
     expect(results.find((row) => row.id === "bot")?.status).toBe("down");
     expect(results.find((row) => row.id === "celeste")?.ok).toBe(false);
+    expect(results.find((row) => row.id === "stats")?.status).toBe("operational");
+  });
+
+  it("does not HTTP-fetch the stats worker itself", async () => {
+    const urls: string[] = [];
+    const doFetch = (async (input: RequestInfo | URL) => {
+      urls.push(String(input));
+      return new Response("no", { status: 503 });
+    }) as typeof fetch;
+
+    const results = await pingAllServices(doFetch);
+    expect(urls.some((url) => url.includes("api.stats"))).toBe(false);
+    expect(results.find((row) => row.id === "stats")).toMatchObject({
+      status: "operational",
+      ok: true,
+      latencyMs: 0,
+    });
   });
 
   it("keeps the latest 30 daily records", async () => {

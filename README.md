@@ -12,7 +12,7 @@ Production host: **https://api.stats.usecelina.xyz**
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/health` | `{ ok, service: "celina-stats-api" }` |
+| GET | `/health` | `{ ok, service, checks: { supabase, uptimeStore } }` — 503 if Supabase or the uptime KV binding is unavailable |
 | POST | `/onchain` | Ingest `{ "hash": "0x…" }` — verifies the Celo receipt succeeded and calldata carries the `celina` attribution tag, then upserts `celina_txns`. 60 requests / 60s per IP |
 | POST | `/telemetry` | Forward one SDK read event to Amplitude. 600 requests / 60s per IP. The write key stays on this Worker |
 | GET | `/onchain` | `{ rows, lastSyncedAt }` — stored celina-tagged transactions. Requires `Authorization: Bearer $STATS_READ_KEY` |
@@ -45,7 +45,7 @@ Requires Node.js ≥ 20. Depends on published `@andrewkimjoseph/celina-sdk` (exa
 
 ## Deploy
 
-Create the Worker from the **Cloudflare dashboard** (Git integration). Do not use the local Wrangler CLI against this repo if it is logged into a different Cloudflare account.
+`npx wrangler deploy`. `account_id` in `wrangler.jsonc` pins the CELINA account. If Wrangler reports an account error, delete `node_modules/.cache/wrangler/wrangler-account.json` and retry.
 
 See **[DEPLOY.md](DEPLOY.md)** for secrets, custom domain `api.stats.usecelina.xyz`, and smoke tests.
 
