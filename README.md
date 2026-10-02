@@ -24,7 +24,7 @@ Production host: **https://api.stats.usecelina.xyz**
 | GET | `/offchain/sync` | `{ lastSyncedAt }` — Amplitude export cursor |
 | GET | `/offchain/events` | `{ rows, lastSyncedAt }` — all calls, newest first (`insert_id`, `event_time`, `event_type`, `device_id`) |
 | GET | `/package` | Merged npm downloads for celina-mcp, celina-sdk, and the legacy celina wrapper (live from the npm registry). Requires the read key |
-| GET | `/uptime` | `{ days }` — last 30 daily health snapshots for [status.usecelina.xyz](https://status.usecelina.xyz). Public. Each day lists MCP Remote, API, bot, stats API, website, and Celeste |
+| GET | `/uptime` | `{ days }` — last 30 daily health snapshots for [status.usecelina.xyz](https://status.usecelina.xyz). Public. Each day lists MCP Remote, API, bot, stats API, website, Celeste, Celina Chat, and the status page |
 
 `GET /onchain`, `GET /offchain/*`, and `GET /package` require `Authorization: Bearer $STATS_READ_KEY`. If that secret is unset, those routes return 401.
 

@@ -21,6 +21,7 @@ export const MONITORED_SERVICES = [
   { id: "website", name: "Website", url: "https://usecelina.xyz/" },
   { id: "celeste", name: "Celeste AI", url: "https://celeste.usecelina.xyz/" },
   { id: "chat", name: "Celina Chat", url: "https://chat.usecelina.xyz/" },
+  { id: "status", name: "Status", url: "https://status.usecelina.xyz/" },
 ] as const;
 
 export type ServiceId = (typeof MONITORED_SERVICES)[number]["id"];
