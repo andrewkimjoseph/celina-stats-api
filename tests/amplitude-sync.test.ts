@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   endOfHourIso,
   latestClosedHour,
+  runAmplitudeBackfill,
   syncAmplitudeExport,
 } from "../src/amplitude.js";
 import type { StatsEnv } from "../src/env.js";
@@ -122,5 +123,67 @@ describe("syncAmplitudeExport", () => {
     expect(patches).toEqual([
       expect.objectContaining({ last_synced_at: "2026-09-23T04:00:00.000Z" }),
     ]);
+  });
+});
+
+describe("runAmplitudeBackfill device_id", () => {
+  it("leaves stored celina_mcp device ids when Amplitude still exports celina-sdk", async () => {
+    const lines = [
+      JSON.stringify({
+        $insert_id: "evt-keep",
+        event_type: "get_token_balance",
+        event_time: "2026-09-23 02:10:00.000",
+        device_id: "celina-sdk",
+      }),
+      JSON.stringify({
+        $insert_id: "evt-new",
+        event_type: "get_token_balance",
+        event_time: "2026-09-23 02:11:00.000",
+        device_id: "celina-sdk",
+      }),
+    ].join("\n");
+    const zipped = zipSync({
+      "2026-09-23_2.json.gz": gzipSync(strToU8(`${lines}\n`)),
+    });
+    const upserts: Array<Array<Record<string, unknown>>> = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("amplitude_sync_state") && (!init?.method || init.method === "GET")) {
+        return syncState("2026-09-23T02:00:00.000Z");
+      }
+      if (url.includes("amplitude.com")) {
+        return new Response(zipped, { status: 200 });
+      }
+      if (url.includes("amplitude_events") && (!init?.method || init.method === "GET")) {
+        expect(url).toContain("device_id=eq.celina_mcp");
+        expect(url).toContain("evt-keep");
+        expect(url).toContain("evt-new");
+        return Response.json([{ insert_id: "evt-keep" }]);
+      }
+      if (url.includes("amplitude_events") && init?.method === "POST") {
+        upserts.push(JSON.parse(String(init.body)) as Array<Record<string, unknown>>);
+        return new Response(null, { status: 201 });
+      }
+      if (init?.method === "PATCH") {
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`unexpected fetch ${url} ${init?.method ?? "GET"}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await runAmplitudeBackfill(
+      env,
+      "20260923T02",
+      "20260923T02",
+      new Date("2026-09-23T06:00:00.000Z"),
+    );
+    expect(result).toMatchObject({ status: "synced", upserted: 2 });
+    expect(upserts).toHaveLength(1);
+    const byId = new Map(upserts[0].map((row) => [row.insert_id, row]));
+    expect(byId.get("evt-keep")).not.toHaveProperty("device_id");
+    expect(byId.get("evt-keep")?.raw).toEqual(
+      expect.objectContaining({ device_id: "celina-sdk" }),
+    );
+    expect(byId.get("evt-new")?.device_id).toBe("celina-sdk");
   });
 });

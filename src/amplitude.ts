@@ -315,6 +315,57 @@ function toEventRows(events: RawEventFull[]) {
   return rows;
 }
 
+const CORRECTED_MCP_DEVICE_ID = "celina_mcp";
+const LEGACY_SDK_DEVICE_ID = "celina-sdk";
+const DEVICE_ID_LOOKUP = 80;
+
+function safeInsertId(value: unknown): string | null {
+  const id = String(value ?? "");
+  return /^[A-Za-z0-9_-]+$/.test(id) ? id : null;
+}
+
+/**
+ * Rows corrected in Supabase keep `device_id` `celina_mcp` even when Amplitude
+ * still exports `celina-sdk`. Omitting the column on merge leaves it unchanged.
+ * New insert ids still store Amplitude's device id. `raw` is not rewritten.
+ */
+async function preserveCorrectedMcpDeviceIds(
+  env: StatsEnv,
+  rows: Array<Record<string, unknown>>,
+): Promise<void> {
+  const ids = rows
+    .filter((row) => row.device_id === LEGACY_SDK_DEVICE_ID)
+    .map((row) => safeInsertId(row.insert_id))
+    .filter((id): id is string => id !== null);
+  if (ids.length === 0) return;
+
+  const preserved = new Set<string>();
+  for (let i = 0; i < ids.length; i += DEVICE_ID_LOOKUP) {
+    const filter = ids
+      .slice(i, i + DEVICE_ID_LOOKUP)
+      .map((id) => `"${id}"`)
+      .join(",");
+    const res = await sbFetch(
+      env,
+      `/rest/v1/amplitude_events?select=insert_id&device_id=eq.${CORRECTED_MCP_DEVICE_ID}&insert_id=in.(${filter})`,
+    );
+    if (!res.ok) {
+      throw new Error(
+        `Supabase read amplitude_events device_id ${res.status}: ${(await res.text()).slice(0, 200)}`,
+      );
+    }
+    const found = (await res.json()) as Array<{ insert_id?: string }>;
+    for (const row of found) {
+      if (row.insert_id) preserved.add(row.insert_id);
+    }
+  }
+
+  for (const row of rows) {
+    const id = safeInsertId(row.insert_id);
+    if (id && preserved.has(id)) delete row.device_id;
+  }
+}
+
 async function upsertEvents(
   env: StatsEnv,
   rows: Array<Record<string, unknown>>,
@@ -323,6 +374,7 @@ async function upsertEvents(
   const CHUNK = 500;
   for (let i = 0; i < rows.length; i += CHUNK) {
     const chunk = rows.slice(i, i + CHUNK);
+    await preserveCorrectedMcpDeviceIds(env, chunk);
     const res = await sbFetch(env, "/rest/v1/amplitude_events?on_conflict=insert_id", {
       method: "POST",
       headers: {

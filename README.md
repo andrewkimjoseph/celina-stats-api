@@ -19,7 +19,7 @@ Production host: **https://api.stats.usecelina.xyz**
 | GET | `/offchain/daily` | `{ rows: [{ day, count }], total }` — `rows` last 90 days; `total` all-time. Requires the read key |
 | GET | `/offchain/wallets` | `{ daily: [{ day, count }], total }` — distinct valid `0x` `user_id` (90 days) |
 | GET | `/offchain/tools` | `{ rows: [{ event, count }] }` — per-tool counts (90 days) |
-| GET | `/offchain/projects` | `{ rows: [{ project, count }] }` — snake_case projects (90 days); excludes SDK; MCP installs collapse to `andrewkimjoseph_celina_mcp` |
+| GET | `/offchain/projects` | `{ rows: [{ project, count }] }` — snake_case projects (90 days); MCP installs collapse to `andrewkimjoseph_celina_mcp` |
 | GET | `/offchain/devices` | `{ uniqueDevices }` — distinct `device_id` (90 days) |
 | GET | `/offchain/sync` | `{ lastSyncedAt }` — Amplitude export cursor |
 | GET | `/offchain/events` | `{ rows, lastSyncedAt }` — all calls, newest first (`insert_id`, `event_time`, `event_type`, `device_id`) |
